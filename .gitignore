@@ -1,0 +1,5 @@
+
+car_classifier/experiments/*
+venv/*
+*.pyc
+*.pclprof
