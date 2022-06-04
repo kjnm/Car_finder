@@ -5,19 +5,21 @@ from main_car_model import train, test, convert_to_mobile, model_benchmark
 from car_category_dataset import get_Cars_Category_Dataset_Division
 import torch
 import torchvision.models as models
-import  effnetv2
+import effnetv2
+import wandb
+
 def main():
 
     run_data = [
-        {"dir_name": "moblie_v3_l_60epoch_batch64_0.5", "epoch": 60, "model": models.mobilenet_v3_large, "resolution" : (400,300), "batch_size" : 64, "loss_frequancy" : 1, "used_data" : 0.5},
-        {"dir_name": "moblie_v3_l_30epoch_batch64_1.0", "epoch": 30, "model": models.mobilenet_v3_large, "resolution" : (400,300), "batch_size" : 64, "loss_frequancy" : 1, "used_data" : 1.0},
+        #{"dir_name": "moblie_v3_l_60epoch_batch64_0.5", "epoch": 60, "model": models.mobilenet_v3_large, "resolution" : (400,300), "batch_size" : 64, "loss_frequancy" : 1, "used_data" : 0.5},
+        #{"dir_name": "moblie_v3_l_30epoch_batch64_1.0", "epoch": 30, "model": models.mobilenet_v3_large, "resolution" : (400,300), "batch_size" : 64, "loss_frequancy" : 1, "used_data" : 1.0},
         #{"dir_name": "moblie_v3_l_60epoch", "epoch": 60, "model": models.mobilenet_v3_large(num_classes =29)},
         #{"dir_name": "moblie_v3_l_10epoch", "epoch": 10, "model": models.mobilenet_v3_large(num_classes =29)},
-        #{"dir_name": "moblie_v3_l_20epoch", "epoch": 20, "model": models.mobilenet_v3_large(num_classes =29)},
+        {"dir_name": "test4", "epoch": 1, "model": models.mobilenet_v3_large, "resolution" : (400,300), "batch_size" : 64, "loss_frequancy" : 1, "used_data" : 0.05},
     ]
 
     only_test = False
-
+    enable_wandb = False
 
     if torch.cuda.is_available():
         dev = "cuda:0"
@@ -26,11 +28,16 @@ def main():
 
 
     for model in run_data:
+
+        wandb.init(project="Car finder", entity="kjnm", name=model["dir_name"], mode ="online" if enable_wandb else "disabled")
+        wandb.config.update(model)
+
         test_dataset, train_dataset = get_Cars_Category_Dataset_Division(
             image_size=(model["resolution"] if model["resolution"] else (400,300)),
             path = r'C:\Users\krzys\Documents\scrapy-otomoto\otomoto.json',
             imagePath = r'D:\imagesType_predict_All_Full\full',
-            used_part=model["used_data"]
+            used_part=model["used_data"],
+            test_part=0.03
             #path = r'C:\Users\krzys\Documents\scrapy-otomoto\otomoto2.json',
             #imagePath = r'D:\imagesType_predictAudi\full'
         )
@@ -38,7 +45,7 @@ def main():
         path = "experiments/" + model["dir_name"]
         if not only_test:
             os.mkdir(path)
-            losses = train(dev, train_dataset, PATH=path +'/model.pth', t_max=model["epoch"], net=model["model"](num_classes = len(train_dataset.category_name)), batch_size=model["batch_size"], loss_frequancy=model["loss_frequancy"])
+            losses = train(dev, train_dataset, test_dataset, PATH=path +'/model.pth', t_max=model["epoch"], net=model["model"](num_classes = len(train_dataset.category_name)), batch_size=model["batch_size"], loss_frequancy=model["loss_frequancy"])
         res = test(dev, test_dataset, path +'/model.pth', net=model["model"](num_classes = len(train_dataset.category_name)))
         res["details"] = model_benchmark(dev, path + '/model.pth', net=model["model"](num_classes = len(train_dataset.category_name)))
         convert_to_mobile(path +'/model.pth', dir=path, net=model["model"](num_classes = len(train_dataset.category_name)))

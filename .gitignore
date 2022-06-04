@@ -4,3 +4,6 @@ venv/*
 .idea/*
 *.pyc
 *.pclprof
+car_classifier/wandb/*
+*.pyc
+*.pyc

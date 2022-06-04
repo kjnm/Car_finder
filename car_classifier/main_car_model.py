@@ -6,6 +6,7 @@ from os.path import join
 from torch.cuda.amp import GradScaler, autocast
 
 from car_classifier.car_category_dataset import get_Cars_Category_Dataset_Division, Cars_Category_Dataset
+
 import numpy as np
 import torch
 from effnetv2 import effnetv2_xs
@@ -17,11 +18,10 @@ import torch
 import torchvision
 from torch.utils.mobile_optimizer import optimize_for_mobile
 from line_profiler_pycharm import profile
+import wandb
 
 @profile
-def train(dev, trainset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v3_large(num_classes =29), batch_size=32, loss_frequancy = 1 ):
-
-    #batch_size = 32
+def train(dev, trainset, testset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v3_large(num_classes =29), batch_size=32, loss_frequancy = 1 ):
 
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=6)
 
@@ -30,15 +30,13 @@ def train(dev, trainset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v
     optimizer = optim.NAdam(net.parameters())
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
 
-    net.train()
-
     epoch_losses = []
     scaler = GradScaler()
     for epoch in tqdm(range(t_max)):
 
         running_loss = 0.0
+        net.train()
         losses = []
-        loss_to_optim = []
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data
             inputs = inputs.to(dev)
@@ -47,20 +45,11 @@ def train(dev, trainset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v
             with autocast(enabled = True):
                 outputs = net(inputs)
                 loss = criterion(outputs, labels)
-                #loss_to_optim.append(loss.to("cpu"))
-
 
             scaler.scale(loss).backward()
             if (i+1) % loss_frequancy == 0:
-
-                #loss_sum = loss_to_optim[0]
-                #for i in range(1, len(loss_to_optim)):
-                #    loss_sum += loss_to_optim[i]
-
                 scaler.step(optimizer)
                 scaler.update()
-                #loss_to_optim = []
-
             running_loss += loss.item()
 
             printing_frequency = 100
@@ -70,7 +59,14 @@ def train(dev, trainset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v
                 losses.append(running_loss / printing_frequency)
                 running_loss = 0.0
 
+
+        wandb.log({"loss" : sum(losses)/len(losses), "epoch": epoch +1})
+
         epoch_losses.append(sum(losses)/len(losses))
+        torch.save(net.state_dict(), PATH)
+        quick_test(dev, testset, net, batch_size * 2, epoch+1)
+        quick_test(dev, testset, net, 1, epoch+1)
+
         scheduler.step()
 
     print('Finished Training')
@@ -125,10 +121,6 @@ def test(dev,testset, PATH, net = models.mobilenet_v3_large(num_classes =29)):
             else:
                 errors_filenames.append(testset.data[i])
 
-                #shutil.copy(testset.data[i][0], r'D:\\wrongPredict\\' + os.path.basename(testset.data[i][0]))
-
-
-
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
@@ -146,6 +138,81 @@ def test(dev,testset, PATH, net = models.mobilenet_v3_large(num_classes =29)):
 
     for category in testset.category_name:
         category_correct[category] /= category_total[category]
+
+    correct_class["By Category"] = category_correct
+    correct_class["Errors Filenames"] = errors_filenames
+
+    return correct_class
+
+def quick_test(dev, testset, net, batch_size, epoch):
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=5)
+
+    net.eval()
+
+    testset.apply_transform = False
+    correct = 0
+
+    correct_class = {}
+    category_correct = {}
+    category_total = {}
+    revert_encode = {}
+    errors_filenames = []
+
+    for idx,category in enumerate(testset.category_name):
+        category_correct[category] = 0.
+        category_total[category] = 0.
+        revert_encode[idx] = category
+
+    top_class = list(range(1,6))
+    for i in top_class:
+        correct_class[i] = 0
+
+    total = 0
+    # since we're not training, we don't need to calculate the gradients for our outputs
+    with torch.no_grad():
+        for i, data in tqdm(enumerate(testloader, 0), total=len(testset)//batch_size):
+            images, labels = data
+
+            images = images.to(dev)
+            labels = labels.to(dev)
+            # calculate outputs by running images through the network
+            outputs = net(images)
+            # the class with the highest energy is what we choose as prediction
+            _, predicted = torch.max(outputs.data, 1)
+
+            for nr_batch in range(min(batch_size,labels.size(0))):
+
+                for k in top_class:
+                    correct_class[k]+= labels[nr_batch] in torch.topk(outputs.data[nr_batch], k).indices
+
+                category_total[revert_encode[labels[nr_batch].item()]] += 1
+                if predicted[nr_batch] == labels[nr_batch]:
+                    category_correct[revert_encode[labels[nr_batch].item()]] += 1
+                else:
+                    errors_filenames.append(testset.data[i])
+
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+
+    print('Accuracy of the network on the test images: %f %%' % (
+        100 * correct / total))
+
+
+    for k in top_class:
+        print('Accuracy of top@'+ str(k) +' the network on the test images: %f %%' % (100 * correct_class[k] / total))
+        wandb.log({"acc@"+ str(k) : (100 * correct_class[k] / total), "epoch": epoch})
+
+
+    for i in top_class:
+        correct_class[i] /= total
+
+    for category in testset.category_name:
+        category_correct[category] /= category_total[category]
+
+    for q in np.linspace(0, 1, 11):
+        np.quantile(list(category_correct.values()), q=q)
+        wandb.log({"class@" + "{:.1f}".format(q): (100 * np.quantile(list(category_correct.values()), q=q)), "epoch": epoch})
 
     correct_class["By Category"] = category_correct
     correct_class["Errors Filenames"] = errors_filenames
