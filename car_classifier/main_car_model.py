@@ -21,13 +21,14 @@ from line_profiler_pycharm import profile
 import wandb
 
 @profile
-def train(dev, trainset, testset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v3_large(num_classes =29), batch_size=32, loss_frequancy = 1 ):
+def train(dev, trainset, testset, PATH = 'model.pth', t_max = 10, net= models.mobilenet_v3_large(num_classes =29), batch_size=32, loss_frequancy = 1, optimizer_f = optim.NAdam ):
 
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=6)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=5)
 
     net.to(dev)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.NAdam(net.parameters())
+    optimizer = optimizer_f(net.parameters())
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
 
     epoch_losses = []
@@ -59,13 +60,15 @@ def train(dev, trainset, testset, PATH = 'model.pth', t_max = 10, net= models.mo
                 losses.append(running_loss / printing_frequency)
                 running_loss = 0.0
 
+        if len(losses) == 0:
+            losses.append(running_loss / printing_frequency)
+            running_loss = 0.0
 
-        wandb.log({"loss" : sum(losses)/len(losses), "epoch": epoch +1})
+        wandb.log({"loss" : sum(losses)/len(losses),'lr': scheduler.get_last_lr()[0], "epoch": epoch +1})
 
         epoch_losses.append(sum(losses)/len(losses))
         torch.save(net.state_dict(), PATH)
         quick_test(dev, testset, net, batch_size * 2, epoch+1)
-        quick_test(dev, testset, net, 1, epoch+1)
 
         scheduler.step()
 
@@ -321,10 +324,11 @@ def main():
 
     test_dataset, train_dataset = get_Cars_Category_Dataset_Division()
 
-    train(dev, train_dataset, 'model_moblie_v3_l_10epoch.pth')
+    #train(dev, train_dataset, 'model_moblie_v3_l_10epoch.pth')
     test(dev, test_dataset, 'model_moblie_v3_l_10epoch.pth')
 
 
 if __name__ == '__main__':
-    predict("cuda:0", "experiments/resnet34_l_30epoch_batch32ALL/model.pth", models.resnet34(num_classes = 366), "D:\images_no_label")
+    main()
+    #predict("cuda:0", "experiments/resnet34_l_30epoch_batch32ALL/model.pth", models.resnet34(num_classes = 366), "D:\images_no_label")
 

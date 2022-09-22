@@ -49,25 +49,12 @@ def prepare_data(flip = False, test_part = 0.1):
 
 def train(dev, trainset):
 
-    t_max = 200
+    t_max = 100
     batch_size = 32
 
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=6)
 
-    # get some random training images
-    #dataiter = iter(trainloader)
-    #images, labels = dataiter.next()
-
-    # show images
-    #imshow(torchvision.utils.make_grid(images))
-    #print(labels)
-
-
-
-
-    #net = models.resnext50_32x4d(pretrained=False, num_classes =2)
-    #net = models.resnet18(num_classes =2)
-    net = effnetv2_xs(num_classes =2)
+    net = models.resnet34(num_classes =2)
 
     net.to(dev)
     criterion = nn.CrossEntropyLoss()
@@ -105,8 +92,8 @@ def train(dev, trainset):
 def test(dev,testset, PATH, remove = True):
     testloader = torch.utils.data.DataLoader(testset, batch_size=1, shuffle=False, num_workers=5)
 
-    #net = models.resnet18(num_classes =2)
-    net = effnetv2_xs(num_classes =2)
+    net = models.resnet34(num_classes =2)
+    #net = effnetv2_xs(num_classes =2)
     net.to(dev)
     net.load_state_dict(torch.load(PATH))
     net.eval()
@@ -205,10 +192,10 @@ def main():
     else:
         dev = "cpu"
 
-    #testset, trainset = prepare_data(test_part = 1.0)
-    #train(dev, trainset)
-    #test(dev, testset, "./model.pth")
-    predict(dev, "eff_v2_final.pth")
+    testset, trainset = prepare_data(test_part = .1)
+    train(dev, trainset)
+    test(dev, testset, "./model.pth")
+    #predict(dev, "eff_v2_final.pth")
 
 if __name__ == '__main__':
     #tunning()

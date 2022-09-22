@@ -7,3 +7,8 @@ venv/*
 car_classifier/wandb/*
 *.pyc
 *.pyc
+filtering_classifier/out.txt
+car_classifier/dataNumbers.json
+car_classifier/dataNew.json
+car_classifier/dataClass.json
+filtering_classifier/model.pth
